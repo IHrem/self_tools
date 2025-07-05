@@ -3,6 +3,7 @@ import pytesseract
 from PIL import Image, ImageDraw
 import sys
 import time
+import subprocess
 
 
 def find_and_click_text(target_text):
@@ -53,12 +54,27 @@ def check_text_exists(text):
         print(f"未找到文本：{text}")
         return False
 
+def bring_app_to_front(pid):
+    """通过进程号将对应 app 置顶（前台）"""
+    applescript = f'''
+tell application "System Events"
+    set frontmost of (first process whose unix id is {pid}) to true
+end tell
+'''
+    result = subprocess.run(['osascript', '-e', applescript], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"置顶进程 {pid} 失败: {result.stderr}")
+    else:
+        print(f"已将进程 {pid} 置顶")
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("用法: python operate_ui.py <按钮文字> <要查找的文本>")
+    if len(sys.argv) != 4:
+        print("用法: python operate_ui.py <进程号pid> <按钮文字> <要查找的文本>")
         sys.exit(1)
-    button_text = sys.argv[1]
-    check_text = sys.argv[2]
-    time.sleep(3)  # 给用户切换到目标窗口的时间
+    pid = int(sys.argv[1])
+    button_text = sys.argv[2]
+    check_text = sys.argv[3]
+    bring_app_to_front(pid)
+    time.sleep(3)  # 给系统反应时间
     find_and_click_text(button_text)
     check_text_exists(check_text) 
