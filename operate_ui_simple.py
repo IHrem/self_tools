@@ -1,96 +1,14 @@
 import pyautogui
-from PIL import Image, ImageDraw
 import sys
 import time
-import subprocess
-import re
-import ctypes
-from ctypes import wintypes
 import win32gui
 import win32process
 import win32con
 import win32api
 
 
-# Windows UI Automation API
-try:
-    import comtypes.client as cc
-    from comtypes.gen import UIAutomationClient as UIA
-    UIA_AVAILABLE = True
-except ImportError:
-    UIA_AVAILABLE = False
-    print("警告: 未安装comtypes库，将使用备用方法")
-
-
 def get_all_ui_elements():
     """获取当前活跃窗口的所有UI元素信息"""
-    if UIA_AVAILABLE:
-        return get_ui_elements_with_uia()
-    else:
-        return get_ui_elements_with_win32()
-
-
-def get_ui_elements_with_uia():
-    """使用Windows UI Automation API获取UI元素"""
-    try:
-        # 初始化UI Automation
-        automation = cc.CreateObject("UIAutomationClient.CUIAutomation")
-        
-        # 获取前台窗口
-        foreground_window = win32gui.GetForegroundWindow()
-        if not foreground_window:
-            print("无法获取前台窗口")
-            return []
-        
-        # 获取窗口的UI Automation元素
-        hwnd = wintypes.HWND(foreground_window)
-        element = automation.ElementFromHandle(hwnd)
-        
-        elements = []
-        collect_ui_elements(element, elements, automation)
-        return elements
-        
-    except Exception as e:
-        print(f"UI Automation API错误: {e}")
-        return []
-
-
-def collect_ui_elements(element, elements_list, automation, depth=0):
-    """递归收集UI元素"""
-    if depth > 10:  # 限制递归深度
-        return
-    
-    try:
-        # 获取元素信息
-        name = element.CurrentName or ""
-        control_type = element.CurrentControlType
-        bounding_rectangle = element.CurrentBoundingRectangle
-        
-        if name and control_type:
-            element_info = {
-                'name': name,
-                'role': str(control_type),
-                'position': (int(bounding_rectangle.left), int(bounding_rectangle.top)),
-                'size': (int(bounding_rectangle.right - bounding_rectangle.left), 
-                        int(bounding_rectangle.bottom - bounding_rectangle.top))
-            }
-            elements_list.append(element_info)
-        
-        # 递归获取子元素
-        try:
-            children = element.FindAll(UIA.TreeScope.TreeScope_Children, 
-                                     automation.CreateTrueCondition())
-            for child in children:
-                collect_ui_elements(child, elements_list, automation, depth + 1)
-        except:
-            pass  # 忽略子元素获取错误
-            
-    except Exception as e:
-        pass  # 忽略单个元素的错误
-
-
-def get_ui_elements_with_win32():
-    """使用Win32 API获取UI元素（备用方法）"""
     try:
         # 获取前台窗口
         foreground_window = win32gui.GetForegroundWindow()
@@ -116,22 +34,16 @@ def get_ui_elements_with_win32():
                         'size': (rect[2] - rect[0], rect[3] - rect[1])
                     }
                     elements.append(element_info)
-            except:
-                pass
+            except Exception as e:
+                pass  # 忽略单个控件的错误
             return True
         
         win32gui.EnumChildWindows(foreground_window, enum_child_windows, None)
         return elements
         
     except Exception as e:
-        print(f"Win32 API错误: {e}")
+        print(f"获取UI元素错误: {e}")
         return []
-
-
-def find_qt_component_by_name(target_name):
-    """通过Qt组件名称查找UI元素"""
-    ui_elements = get_all_ui_elements()
-    return find_component_by_name(ui_elements, target_name)
 
 
 def find_component_by_name(elements, target_name):
@@ -140,6 +52,12 @@ def find_component_by_name(elements, target_name):
         if element.get('name') == target_name:
             return element
     return None
+
+
+def find_qt_component_by_name(target_name):
+    """通过Qt组件名称查找UI元素"""
+    ui_elements = get_all_ui_elements()
+    return find_component_by_name(ui_elements, target_name)
 
 
 def list_all_components():
@@ -230,16 +148,42 @@ def bring_app_to_front(pid):
         print(f"置顶进程 {pid} 失败: {e}")
 
 
+def get_process_info():
+    """获取当前运行的进程信息"""
+    try:
+        def enum_windows_callback(hwnd, lparam):
+            try:
+                if win32gui.IsWindowVisible(hwnd):
+                    window_text = win32gui.GetWindowText(hwnd)
+                    _, window_pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if window_text and window_pid:
+                        print(f"窗口: {window_text} (PID: {window_pid})")
+            except:
+                pass
+            return True
+        
+        print("当前可见窗口:")
+        print("-" * 40)
+        win32gui.EnumWindows(enum_windows_callback, None)
+        
+    except Exception as e:
+        print(f"获取进程信息失败: {e}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("用法:")
-        print("  列出所有组件: python operate_ui.py list")
-        print("  点击组件: python operate_ui.py <进程号pid> <组件名称> <要查找的组件名称>")
+        print("  列出所有组件: python operate_ui_simple.py list")
+        print("  列出进程信息: python operate_ui_simple.py processes")
+        print("  点击组件: python operate_ui_simple.py <进程号pid> <组件名称> <要查找的组件名称>")
         sys.exit(1)
     
     if sys.argv[1] == "list":
         # 列出所有可用的UI组件
         list_all_components()
+    elif sys.argv[1] == "processes":
+        # 列出进程信息
+        get_process_info()
     elif len(sys.argv) == 4:
         pid = int(sys.argv[1])
         component_name = sys.argv[2]
@@ -251,6 +195,7 @@ if __name__ == "__main__":
         check_component_exists(check_component)
     else:
         print("用法:")
-        print("  列出所有组件: python operate_ui.py list")
-        print("  点击组件: python operate_ui.py <进程号pid> <组件名称> <要查找的组件名称>")
+        print("  列出所有组件: python operate_ui_simple.py list")
+        print("  列出进程信息: python operate_ui_simple.py processes")
+        print("  点击组件: python operate_ui_simple.py <进程号pid> <组件名称> <要查找的组件名称>")
         sys.exit(1) 
